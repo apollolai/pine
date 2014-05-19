@@ -1,9 +1,3 @@
-###########################################################
-## Standard rules for building an executable file.
-##
-## Additional inputs from base_rules.make:
-## None.
-###########################################################
 
 LOCAL_IS_HOST_MODULE := true
 ifeq ($(strip $(LOCAL_MODULE_CLASS)),)

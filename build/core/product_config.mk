@@ -1,2 +1,0 @@
-
-TARGET_DEVICE := default

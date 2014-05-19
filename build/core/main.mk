@@ -1,57 +1,74 @@
-# Absolute path of the present working direcotry.
-# This overrides the shell variable $PWD, which does not necessarily points to
-# the top of the source tree, for example when "make -C" is used in m/mm/mmm.
-PWD := $(shell pwd)
+LEGACY_BUILD_PATH := true
+RELEASE_LEVEL := green
+SUPPORT_FLOAT_HARD :=false
+TARGET_BUILD_VARIANT := eng
+TARGET_BOARD := generic
 
 TOP := .
-TOPDIR :=
+TOPDIR := $(shell pwd)/
+PINETOP := $(patsubst %morpheus,%,$(shell pwd))pine
+
 
 BUILD_SYSTEM := $(TOPDIR)build/core
-
-
-# For most goals, anything not tagged with the "tests" tag should
-# be installed in /system.
-define should-install-to-system
-$(if $(filter tests,$(1)),,true)
-endef
+PREBUILT_DIR := $(TOPDIR)prebuilt
+OUT_DIR := $(TOPDIR)out
+BOARDS_DIR := $(TOPDIR)boards
 
 # Set up various standard variables based on configuration
 # and host information.
 include $(BUILD_SYSTEM)/config.mk
+
+# Bring in standard build system definitions.
 include $(BUILD_SYSTEM)/definitions.mk
 
-ifneq ($(ONE_SHOT_MAKEFILE),)
-# We've probably been invoked by the "mm" shell function
-# with a subdirectory's makefile.
-include $(ONE_SHOT_MAKEFILE)
-# Change CUSTOM_MODULES to include only modules that were
-# defined by this makefile; this will install all of those
-# modules as a side-effect.  Do this after including ONE_SHOT_MAKEFILE
-# so that the modules will be installed in the same place they
-# would have been with a normal make.
-CUSTOM_MODULES := $(sort $(call get-tagged-modules,$(ALL_MODULE_TAGS)))
-FULL_BUILD :=
-# Stub out the notice targets, which probably aren't defined
-# when using ONE_SHOT_MAKEFILE.
-NOTICE-HOST-%: ;
-NOTICE-TARGET-%: ;
+ALL_MODULES := 
 
-else # ONE_SHOT_MAKEFILE
+#search all module.mk
+subdirs := \
+	external \
+	kernel \
+	amp \
+	sdk \
+	packages \
+        test \
+        doc \
+        boards 
 
-#
-# Include all of the makefiles in the system
-#
-
-# Can't use first-makefiles-under here because
-# --mindepth=2 makes the prunes not work.
 subdir_makefiles := \
-	$(shell build/tools/findleaves.py --prune=out --prune=.repo --prune=.git $(subdirs) Module.mk)
+	$(shell build/tools/findleaves.py --prune=out --prune=.repo --prune=.git $(subdirs) module.mk)
 
 include $(subdir_makefiles)
 
-endif # ONE_SHOT_MAKEFILE
+.PHONY: clean 
+clean: $(addsuffix -clean, $(ALL_MODULES))
+	$(hide) rm -rf $(TOP)/out
 
-.PHONY: all_modules
-all_modules: $(ALL_MODULES)
+.PHONY: release release-clean
+release-clean: 
+	-$(hide) rm -rf $(RELEASE_DIR)
 
+RELEASE_MODULES := $(addsuffix -release, $(ALL_MODULES))
+$(RELEASE_MODULES) : | release-clean
+$(RELEASE_MODULES) : | rootfs  
+release: $(RELEASE_MODULES)
+	$(hide) mkdir -p $(RELEASE_PINE_DIR)/build
+	$(hide) $(RSYNC) $(PINETOP)/build/* $(RELEASE_PINE_DIR)/build
+	$(hide) sed 's/RELEASE_LEVEL := .*/RELEASE_LEVEL := $(RELEASE_LEVEL)/' $(PINETOP)/build/core/main.mk > $(RELEASE_PINE_DIR)/build/core/main.mk
+	$(hide) echo 'ro.build.version=$(TARGET_BUILD_VERSION)' >> $(RELEASE_PINE_DIR)/build/system.prop
+	$(hide) $(RSYNC) $(PINETOP)/Makefile $(RELEASE_PINE_DIR)
+	$(hide) cd $(OUT_DIR) && tar czf mx_$(shell date +%Y%m%d).$(RELEASE_LEVEL).release.tgz release 
 
+.PHONY: release-check
+release-check: release
+	+$(hide) cd $(RELEASE_PINE_DIR) && make dfu SUPPORT_FLOAT_HARD=$(SUPPORT_FLOAT_HARD) TARGET_BOARD=$(TARGET_BOARD)
+	+$(hide) cd $(RELEASE_PINE_DIR)/out && tar czvf emmc_$(shell date +%Y%m%d).$(RELEASE_LEVEL).release.tgz eMMCimg
+	+$(hide) cd $(RELEASE_PINE_DIR)/out && tar czvf dfu_$(shell date +%Y%m%d).$(RELEASE_LEVEL).release.tgz dfu.zip dfu.encrypt.zip
+	+$(hide) mv $(RELEASE_PINE_DIR)/out/*.release.tgz $(OUT_DIR)
+
+.PHONY: list-modules
+list-modules: 
+	@echo $(ALL_MODULES)
+
+.PHONY: all
+all: 
+	echo "Nothing to do!"
